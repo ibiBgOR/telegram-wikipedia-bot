@@ -6,17 +6,16 @@ import time
 import simplejson as json
 import re
 
-DB_NAME = 'chats.db'
-TABLE_NAMES = ['CHATS']
+DB_NAME = 'data.db'
+TABLE_NAMES = ['SEARCHES']
 
-WAIT_TIME = 3000 # seconds
+WAIT_TIME = 3 # seconds
 
 HELP_MESSAGE = '''
 Wikipedia Auto Post Bot - v1.1
     > help - Show this help
-    > start - Start the bot
+    > start - Starts the bot
     > search - Search the german wikipedia
-    > end - End the bot
 '''
 
 SEARCH_PATTERN = re.compile(ur'/search(@wikiautopostbot){0,}', re.IGNORECASE)
@@ -33,47 +32,25 @@ def init():
 
     con.execute('''
         CREATE TABLE IF NOT EXISTS ''' + TABLE_NAMES[0] + ''' (
-            CHAT_ID     NUMBER	UNIQUE	NOT NULL
+            SEARCH_TERM     TEXT	UNIQUE	NOT NULL,
+            RANK            NUMBER
         )''')
 
     con.close()
 
-def insertChat(chat_id):
+def insert_or_update_word(word):
     try:
         con = db.connect(DB_NAME)
 
-        print 'insert into database'
-        con.execute('INSERT INTO ' + TABLE_NAMES[0] + ' VALUES ( ? )', (chat_id, ))
-        print 'inserted'
+        word = word.strip()
 
-        con.commit()
-    except Exception as e:
-        print str(e)
-    finally:
-        con.close()
+        for term, rank in con.execute('SELECT search_term, rank FROM ' + TABLE_NAMES[0] + ' WHERE search_term LIKE ?', (word.lower(),)).fetchall():
+            con.execute('UPDATE ' + TABLE_NAMES[0] + ' SET rank = ? WHERE search_term LIKE ?', (int(rank) + 1, term,))
+            con.commit()
+            return
 
-def chatJoined(chat_id):
-    try:
-        con = db.connect(DB_NAME)
-
-        print 'searching database'
-        con.execute('INSERT INTO ' + TABLE_NAMES[0] + ' VALUES ( ? )', (chat_id, ))
-        print 'searched'
-
-        con.commit()
-    except Exception as e:
-        print str(e)
-    finally:
-        con.close()
-
-def deleteChat(chat_id):
-    try:
-        con = db.connect(DB_NAME)
-
-        print 'remove from database'
-        con.execute('DELETE FROM ' + TABLE_NAMES[0] + ' WHERE chat_id = ?', (chat_id, ))
-        print 'removed'
-
+        con.execute('INSERT INTO ' + TABLE_NAMES[0] + ' VALUES ( ? , ? )', (word, 1,))
+        
         con.commit()
     except Exception as e:
         print str(e)
@@ -94,6 +71,7 @@ def sendMessage(chat_id, message, reply_markup = None):
 def getWikiArticle(name):
     try:
         page = wikipedia.page(name).url
+        insert_or_update_word(name)
         return page
     except wikipedia.exceptions.DisambiguationError as e:
         return str(e)
@@ -107,7 +85,6 @@ def startMainLoop():
     print 'Starting MainLoop'
 
     while True:
-        #time.sleep(WAIT_TIME)
         updates = bot.getUpdates(offset = messageOffset, limit = 1, timeout = WAIT_TIME)
     
         if len(updates) is not 0:
@@ -119,10 +96,9 @@ def startMainLoop():
                 message = u.message.text.lower()
 
                 if message.startswith(u'/start'):
-                    insertChat(chat_id)
                     sendMessage(chat_id, 'Senden Sie mir Ihren Suchbegriff: "/search <wort>"')
                 elif message.startswith(u'/stop'):
-                    deleteChat(chat_id)
+                    pass # You cannot stop me wahahaha :D
                 elif message.startswith(u'/help'):
                     sendMessage(chat_id, HELP_MESSAGE)
                 elif message.startswith(u'/search'):
